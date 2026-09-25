@@ -1,67 +1,68 @@
+import os
 import re
-from scapy.all import IP, ICMP, Raw, rdpcap
+import base64
+from scapy.all import *
 
-def deep_icmp_analyze(pcap_path="capture.pcap"):
-    print("[*] Running Deep ICMP Analysis...")
-    try:
-        packets = rdpcap(pcap_path)
-    except Exception as e:
-        print(f"[-] File load error: {e}")
-        return
+print("[*] Running Ultimate ICMP CTF Solver...")
 
-    lengths = bytearray()
-    ip_ids = bytearray()
-    offset_8 = bytearray()
-    offset_16 = bytearray()
+# Read PCAP and filter ONLY Echo Requests (Type 8) to avoid Request/Reply duplication
+packets = rdpcap('ch.pcapng')
+requests = [p for p in packets if ICMP in p and p[ICMP].type == 8]
+if not requests:
+    requests = [p for p in packets if ICMP in p]
 
-    for pkt in packets:
-        # শুধুমাত্র ICMP Echo Request (type 8) চেক করা হবে
-        if pkt.haslayer(ICMP) and pkt[ICMP].type == 8:
-            
-            # ১. IP ID ফিল্ড চেক
-            if pkt.haslayer(IP):
-                ip_ids.append(pkt[IP].id & 0xFF)  # Lower byte of IP ID
-                
-            # ২. Payload Length এবং Offset চেক
-            if pkt.haslayer(Raw):
-                load = pkt[Raw].load
-                
-                # Length Based Exfiltration (প্যাকেটের সাইজ = ASCII Character)
-                # অনেক সময় Length এর সাথে অতিরিক্ত কিছু ডেটা থাকে, তাই 256 দিয়ে মডিউলাস করা হয়
-                lengths.append(len(load) % 256)
-                
-                # Offset Based Exfiltration (প্রথম ৮/১৬ বাইট লিনাক্স টাইমস্ট্যাম্প স্কিপ করে)
-                if len(load) > 8:
-                    offset_8.append(load[8])
-                if len(load) > 16:
-                    offset_16.append(load[16])
+payloads = [bytes(p[ICMP].payload) for p in requests if p[ICMP].payload]
+flag_regex = re.compile(b'bcsctf{.*?}', re.IGNORECASE)
 
-    candidates = {
-        "Packet Length (Data Size)": lengths,
-        "IP Identification Field": ip_ids,
-        "Payload Data (Offset 8)": offset_8,
-        "Payload Data (Offset 16)": offset_16
-    }
+def check_flag(data, context):
+    matches = flag_regex.findall(data)
+    if matches:
+        print(f"\n[+] FLAG FOUND IN {context}:")
+        for m in matches:
+            print("=>", m.decode('utf-8', errors='ignore'))
+        return True
+    return False
 
-    flag_regex = re.compile(rb"bcsctf\{[^}]+\}", re.IGNORECASE)
-    found = False
+# 1. Vertical Offsets (Decoding Base64 / Base85)
+print("[*] Checking vertical columns (1 byte per packet)...")
+if payloads:
+    min_len = min(len(pl) for pl in payloads)
+    for i in range(min_len):
+        col_bytes = bytes([pl[i] for pl in payloads])
+        if check_flag(col_bytes, f"Offset {i}"): continue
+        
+        # Strip non-printable and attempt decoding
+        clean_col = b"".join([bytes([b]) for b in col_bytes if 32 <= b <= 126])
+        if len(clean_col) > 10:
+            try: check_flag(base64.b64decode(clean_col + b"==="), f"Base64 Offset {i}")
+            except: pass
+            try: check_flag(base64.b85decode(clean_col), f"Base85 (b85) Offset {i}")
+            except: pass
+            try: check_flag(base64.a85decode(clean_col), f"Ascii85 (a85) Offset {i}")
+            except: pass
 
-    for method_name, data in candidates.items():
-        match = flag_regex.search(data)
-        if match:
-            print("\n" + "★" * 50)
-            print(f"[🎉] SUCCESS! Data was exfiltrated via: {method_name}")
-            print(f"[+] FLAG: {match.group(0).decode('utf-8', errors='ignore')}")
-            print("★" * 50 + "\n")
-            found = True
-            break
+# 2. Check ICMP Headers
+print("[*] Checking ICMP Headers (TTL, Sequence)...")
+ttls = bytes([p[IP].ttl for p in requests if IP in p])
+check_flag(ttls, "TTLs")
+seqs = bytes([p[ICMP].seq % 256 for p in requests])
+check_flag(seqs, "Sequence Numbers")
 
-    if not found:
-        print("\n[-] Exact flag structure not found. Printing printable strings from all methods:")
-        for method_name, data in candidates.items():
-            printable = "".join(chr(b) for b in data if 32 <= b <= 126)
-            if len(printable) > 10:
-                print(f"\n--- From {method_name} ---")
-                print(printable[:150])
+# 3. Horizontal Reassembly (Skipping timestamps)
+print("[*] Reassembling payload data to check for hidden files...")
+for skip in [0, 8, 16]:
+    extracted = b"".join([pl[skip:] for pl in payloads])
+    if check_flag(extracted, f"Reassembled Data (Skip {skip})"): continue
+    
+    no_nulls = extracted.replace(b'\x00', b'')
+    if check_flag(no_nulls, f"Reassembled Data without nulls (Skip {skip})"): continue
+    
+    # Save cleanly to disk
+    with open(f"extracted_skip{skip}.bin", 'wb') as f:
+        f.write(extracted)
+    with open(f"extracted_skip{skip}_nonull.bin", 'wb') as f:
+        f.write(no_nulls)
 
-deep_icmp_analyze()
+print("\n[*] File types of carved payloads:")
+os.system("file extracted_skip*.bin")
+print("\n[*] Done! If a file above says 'Zip archive' or 'PNG image', unzip/open it to get your flag.")
