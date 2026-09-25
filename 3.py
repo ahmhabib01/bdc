@@ -1,70 +1,54 @@
-import os
 import cv2
 import numpy as np
 from PIL import Image
 
-# PyZbar অটোমেটিক ইন্সটল করবে যদি না থাকে
-try:
-  from pyzbar.pyzbar import decode
-except ImportError:
-  os.system("pip install pyzbar")
-  from pyzbar.pyzbar import decode
+def super_solver():
+    print("[*] Super Solver Start Hocche... Ektu Opekkha Korun...")
+    
+    # Image Load
+    img = Image.open("shattered_qr.png").convert("L")
+    arr = np.array(img)
+    N = arr.shape[0]
+    
+    Y, X = np.indices((N, N))
 
-# Shattered QR Image Load
-img = Image.open("shattered_qr.png").convert("L")
-arr = np.array(img)
-N = arr.shape[0]
+    # Arnold's Cat Map er shob dhoroner variation
+    transforms = [
+        ("Inverse (Standard)", lambda x, y: (2 * x - y) % N, lambda x, y: (-x + y) % N),
+        ("Forward (Standard)", lambda x, y: (x + y) % N, lambda x, y: (x + 2 * y) % N),
+        ("Inverse (Transposed)", lambda x, y: (x - y) % N, lambda x, y: (-x + 2 * y) % N),
+        ("Forward (Transposed)", lambda x, y: (2 * x + y) % N, lambda x, y: (x + y) % N)
+    ]
 
-Y, X = np.indices((N, N))
+    detector = cv2.QRCodeDetector()
+    success = False
 
-# Cat Map Variational Formulas
-transformations = [
-    ("Inv_Std", lambda x, y: (2 * x - y) % N, lambda x, y: (-x + y) % N),
-    ("Fwd_Std", lambda x, y: (x + y) % N, lambda x, y: (x + 2 * y) % N),
-    ("Inv_Trp", lambda x, y: (x - y) % N, lambda x, y: (-x + 2 * y) % N),
-    ("Fwd_Trp", lambda x, y: (2 * x + y) % N, lambda x, y: (x + y) % N),
-]
+    for name, fx, fy in transforms:
+        curr = arr.copy()
+        
+        # 9 Passes Transformation
+        for _ in range(9):
+            src_x = fx(X, Y)
+            src_y = fy(X, Y)
+            curr = curr[src_y, src_x]
 
-found = False
+        # [!] CRITICAL FIX: Image-ke 10x upscale kora hocche Nearest Neighbor diye
+        scaled = cv2.resize(curr, (N * 10, N * 10), interpolation=cv2.INTER_NEAREST)
 
-for name, fx, fy in transformations:
-  curr = arr.copy()
-  # 9 passes Transformation
-  for p in range(9):
-    src_x = fx(X, Y)
-    src_y = fy(X, Y)
-    curr = curr[src_y, src_x]
+        # charipashe 50px shada border (Quiet Zone) add kora hocche
+        padded = np.pad(scaled, pad_width=50, mode="constant", constant_values=255)
 
-  # Add padding & convert to uint8
-  padded = np.pad(
-      curr, pad_width=40, mode="constant", constant_values=255
-  ).astype(np.uint8)
+        # Decode korar try kora hocche
+        data, bbox, _ = detector.detectAndDecode(padded)
+        if data:
+            print("\n" + "★" * 50)
+            print(f"[!] BINGO! Pattern Matched: {name}")
+            print(f"[+] YOUR FLAG / TOKEN IS: {data}")
+            print("★" * 50 + "\n")
+            success = True
+            break
+            
+    if not success:
+        print("\n[-] Kono error hocche. File name 'shattered_qr.png' thik ache kina check korun.")
 
-  # Method 1: PyZbar Decoding
-  decoded_objects = decode(Image.fromarray(padded))
-  for obj in decoded_objects:
-    flag_text = obj.data.decode("utf-8")
-    print("\n" + "=" * 50)
-    print(f"[🎉] SUCCESS! FLAG FOUND: {flag_text}")
-    print("=" * 50)
-    found = True
-    break
-
-  if found:
-    break
-
-  # Method 2: Upscaled OpenCV Decoding
-  resized = cv2.resize(
-      padded, (0, 0), fx=2, fy=2, interpolation=cv2.INTER_NEAREST
-  )
-  detector = cv2.QRCodeDetector()
-  data, _, _ = detector.detectAndDecode(resized)
-  if data:
-    print("\n" + "=" * 50)
-    print(f"[🎉] SUCCESS! FLAG FOUND: {data}")
-    print("=" * 50)
-    found = True
-    break
-
-if not found:
-  print("\n[-] Auto-decoding with pyzbar failed.")
+super_solver()
