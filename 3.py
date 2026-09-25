@@ -2,53 +2,63 @@ import cv2
 import numpy as np
 from PIL import Image
 
-def super_solver():
-    print("[*] Super Solver Start Hocche... Ektu Opekkha Korun...")
+def final_solver():
+    print("[*] Exact Grid Solver Start Hocche...")
     
-    # Image Load
     img = Image.open("shattered_qr.png").convert("L")
     arr = np.array(img)
-    N = arr.shape[0]
+    size = arr.shape[0]  # 540
     
-    Y, X = np.indices((N, N))
-
-    # Arnold's Cat Map er shob dhoroner variation
+    # Arnold's Cat Map Variations
     transforms = [
-        ("Inverse (Standard)", lambda x, y: (2 * x - y) % N, lambda x, y: (-x + y) % N),
-        ("Forward (Standard)", lambda x, y: (x + y) % N, lambda x, y: (x + 2 * y) % N),
-        ("Inverse (Transposed)", lambda x, y: (x - y) % N, lambda x, y: (-x + 2 * y) % N),
-        ("Forward (Transposed)", lambda x, y: (2 * x + y) % N, lambda x, y: (x + y) % N)
+        ("Inverse Standard", lambda x, y, n: (2 * x - y) % n, lambda x, y, n: (-x + y) % n),
+        ("Forward Standard", lambda x, y, n: (x + y) % n, lambda x, y, n: (x + 2 * y) % n)
     ]
-
+    
     detector = cv2.QRCodeDetector()
-    success = False
-
-    for name, fx, fy in transforms:
-        curr = arr.copy()
+    found = False
+    
+    # 540 পিক্সেল ইমেজের সঠিক Block Size বের করার জন্য লুপ
+    block_sizes = [c for c in range(2, 35) if size % c == 0]
+    
+    for c in block_sizes:
+        N = size // c  # Grid size (যেমন: 540 // 12 = 45)
         
-        # 9 Passes Transformation
-        for _ in range(9):
-            src_x = fx(X, Y)
-            src_y = fy(X, Y)
-            curr = curr[src_y, src_x]
-
-        # [!] CRITICAL FIX: Image-ke 10x upscale kora hocche Nearest Neighbor diye
-        scaled = cv2.resize(curr, (N * 10, N * 10), interpolation=cv2.INTER_NEAREST)
-
-        # charipashe 50px shada border (Quiet Zone) add kora hocche
-        padded = np.pad(scaled, pad_width=50, mode="constant", constant_values=255)
-
-        # Decode korar try kora hocche
-        data, bbox, _ = detector.detectAndDecode(padded)
-        if data:
-            print("\n" + "★" * 50)
-            print(f"[!] BINGO! Pattern Matched: {name}")
-            print(f"[+] YOUR FLAG / TOKEN IS: {data}")
-            print("★" * 50 + "\n")
-            success = True
+        # প্রতিটি ব্লক থেকে ১টি করে পিক্সেল নিয়ে আসল গ্রিড তৈরি
+        small_arr = arr[::c, ::c].copy()
+        Y, X = np.indices((N, N))
+        
+        for name, fx, fy in transforms:
+            curr = small_arr.copy()
+            
+            # ৯ বার (9 passes) ফর্মুলা অ্যাপ্লাই
+            for _ in range(9):
+                src_x = fx(X, Y, N)
+                src_y = fy(X, Y, N)
+                curr = curr[src_y, src_x]
+            
+            # রিকভার করা গ্রিডটিকে স্ক্যান করার জন্য বড় করা হচ্ছে
+            restored = cv2.resize(curr, (500, 500), interpolation=cv2.INTER_NEAREST)
+            padded = np.pad(restored, pad_width=40, mode="constant", constant_values=255)
+            
+            # OpenCV দিয়ে সরাসরি ফ্ল্যাগ বের করার চেষ্টা
+            data, _, _ = detector.detectAndDecode(padded)
+            if data:
+                print("\n" + "★" * 50)
+                print(f"[!] SUCCESS! Matched Grid: {N}x{N}, Method: {name}")
+                print(f"[+] YOUR FLAG: {data}")
+                print("★" * 50 + "\n")
+                found = True
+                break
+                
+            # যদি টার্মিনালে না আসে, ইমেজটি সেভ করে রাখছি
+            Image.fromarray(padded).save(f"test_qr_{N}x{N}.png")
+            
+        if found:
             break
             
-    if not success:
-        print("\n[-] Kono error hocche. File name 'shattered_qr.png' thik ache kina check korun.")
+    if not found:
+        print("\n[-] OpenCV flag detect korte pareni, tobe file save hoyeche.")
+        print("[-] 'cloudshell download test_qr_45x45.png' command diye file namiye phone diye scan korun!")
 
-super_solver()
+final_solver()
