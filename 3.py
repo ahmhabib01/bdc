@@ -1,41 +1,32 @@
-from PIL import Image
 import numpy as np
+from PIL import Image
 
-def unshake_cat_map(img_path, passes=9, output_path="reconstructed_qr.png"):
-    # Load image and convert to grayscale/numpy array
-    img = Image.open(img_path).convert("L")
-    arr = np.array(img)
-    
-    height, width = arr.shape
-    assert height == width, "Image must be square (N x N)"
-    N = height
+# 1. Image load korun
+img = Image.open("shattered_qr.png").convert("L")
+arr = np.array(img)
+N = arr.shape[0]
 
-    current_arr = arr.copy()
+Y, X = np.indices((N, N))
 
-    # Perform 9 inverse Arnold's Cat Map passes
-    for p in range(passes):
-        prev_arr = np.zeros_like(current_arr)
-        for y in range(N):
-            for x in range(N):
-                # Inverse matrix mapping: [2, -1; -1, 1]
-                orig_x = (2 * x - y) % N
-                orig_y = (-x + y) % N
-                prev_arr[orig_y, orig_x] = current_arr[y, x]
-        current_arr = prev_arr
+# 2. Variant 1 Inverse Map (Matrix: [[2, -1], [-1, 1]])
+curr1 = arr.copy()
+for _ in range(9):
+  prev_X = (2 * X - Y) % N
+  prev_Y = (-X + Y) % N
+  curr1 = curr1[prev_Y, prev_X]
 
-    # Save reconstructed QR code
-    restored_img = Image.fromarray(current_arr)
-    restored_img.save(output_path)
-    print(f"[+] Reconstructed QR code saved to: {output_path}")
+Image.fromarray(curr1).save("reconstructed_qr_v1.png")
 
-    # Optionally attempt to auto-decode using pyzbar or OpenCV
-    try:
-        import cv2
-        detector = cv2.QRCodeDetector()
-        data, bbox, _ = detector.detectAndDecode(cv2.imread(output_path))
-        if data:
-            print(f"[+] Emergency Access Token: {data}")
-    except Exception:
-        print("[!] Install opencv-python or pyzbar to auto-read, or scan reconstructed_qr.png with any QR reader.")
+# 3. Variant 2 Inverse Map (Matrix: [[1, -1], [-1, 2]])
+curr2 = arr.copy()
+for _ in range(9):
+  prev_X = (X - Y) % N
+  prev_Y = (-X + 2 * Y) % N
+  curr2 = curr2[prev_Y, prev_X]
 
-unshake_cat_map("shattered_qr.png", passes=9)
+Image.fromarray(curr2).save("reconstructed_qr_v2.png")
+
+print(
+    "[+] Extraction complete! 'reconstructed_qr_v1.png' ebong"
+    " 'reconstructed_qr_v2.png' check korun."
+)
