@@ -1,41 +1,32 @@
-import re
+import os
 from scapy.all import ICMP, rdpcap
 
+def extract_icmp_file(pcap_path="capture.pcap"): # capture.pcap এর জায়গায় আপনার ফাইলের নাম দিন
+    print("[*] Reading PCAP file...")
+    packets = rdpcap(pcap_path)
+    seq_payloads = {}
 
-def extract_icmp_flag(pcap_path):
-  packets = rdpcap(pcap_path)
+    for pkt in packets:
+        if pkt.haslayer(ICMP) and pkt[ICMP].type == 8: # শুধুমাত্র ICMP Echo Request
+            seq = pkt[ICMP].seq
+            payload = bytes(pkt[ICMP].payload)
+            
+            # Linux Ping সাধারণত প্রথম ৮ বা ১৬ বাইটে Timestamp পাঠায়। সেটি বাদ দিয়ে মূল ডেটা নেওয়া হচ্ছে।
+            if len(payload) > 8 and not payload[:4].isascii():
+                seq_payloads[seq] = payload[8:]
+            else:
+                seq_payloads[seq] = payload
 
-  # Collect payload indexed by ICMP sequence number to preserve order
-  seq_payloads = {}
+    # প্যাকেটগুলো সঠিক অর্ডারে সাজিয়ে জোড়া লাগানো
+    sorted_data = bytearray()
+    for seq in sorted(seq_payloads.keys()):
+        sorted_data.extend(seq_payloads[seq])
 
-  for pkt in packets:
-    if pkt.haslayer(ICMP) and pkt[ICMP].type == 8:  # ICMP Echo Request
-      seq = pkt[ICMP].seq
-      raw_payload = bytes(pkt[ICMP].payload)
+    # বাইনারি ফাইলে সেভ করা
+    output_filename = "extracted_file.bin"
+    with open(output_filename, "wb") as f:
+        f.write(sorted_data)
+    
+    print(f"[+] File successfully reconstructed and saved to '{output_filename}'")
 
-      # Standard Linux ping includes an 8-byte timestamp header before custom payload.
-      # If the payload length is greater than 8, slice after timestamp if needed.
-      seq_payloads[seq] = raw_payload
-
-  # Sort by sequence number and concatenate
-  sorted_data = bytearray()
-  for seq in sorted(seq_payloads.keys()):
-    payload = seq_payloads[seq]
-    # If standard 8-byte timestamp is present, payload[8:] extracts the exfiltrated char
-    if len(payload) > 8 and payload[:4].isascii() == False:
-      sorted_data.extend(payload[8:])
-    else:
-      sorted_data.extend(payload)
-
-  raw_bytes = bytes(sorted_data)
-
-  # Search for the flag pattern
-  flag_match = re.search(rb"bcsctf\{[^}]+\}", raw_bytes)
-  if flag_match:
-    print(f"[+] FLAG FOUND: {flag_match.group(0).decode()}")
-  else:
-    print("[*] Reconstructed Data Stream:")
-    print(raw_bytes)
-
-
-extract_icmp_flag("capture.pcap")
+extract_icmp_file()
