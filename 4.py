@@ -1,77 +1,67 @@
 import re
-from scapy.all import ICMP, Raw, rdpcap
+from scapy.all import IP, ICMP, Raw, rdpcap
 
+def deep_icmp_analyze(pcap_path="capture.pcap"):
+    print("[*] Running Deep ICMP Analysis...")
+    try:
+        packets = rdpcap(pcap_path)
+    except Exception as e:
+        print(f"[-] File load error: {e}")
+        return
 
-def extract_icmp_data(pcap_path="capture.pcap"):
-  print(f"[*] Analyzing {pcap_path}...")
-  try:
-    packets = rdpcap(pcap_path)
-  except Exception as e:
-    print(f"[-] Error loading pcap: {e}")
-    return
+    lengths = bytearray()
+    ip_ids = bytearray()
+    offset_8 = bytearray()
+    offset_16 = bytearray()
 
-  all_payloads_req = []
-  all_payloads_rep = []
-  single_bytes_req = []
-  single_bytes_rep = []
+    for pkt in packets:
+        # শুধুমাত্র ICMP Echo Request (type 8) চেক করা হবে
+        if pkt.haslayer(ICMP) and pkt[ICMP].type == 8:
+            
+            # ১. IP ID ফিল্ড চেক
+            if pkt.haslayer(IP):
+                ip_ids.append(pkt[IP].id & 0xFF)  # Lower byte of IP ID
+                
+            # ২. Payload Length এবং Offset চেক
+            if pkt.haslayer(Raw):
+                load = pkt[Raw].load
+                
+                # Length Based Exfiltration (প্যাকেটের সাইজ = ASCII Character)
+                # অনেক সময় Length এর সাথে অতিরিক্ত কিছু ডেটা থাকে, তাই 256 দিয়ে মডিউলাস করা হয়
+                lengths.append(len(load) % 256)
+                
+                # Offset Based Exfiltration (প্রথম ৮/১৬ বাইট লিনাক্স টাইমস্ট্যাম্প স্কিপ করে)
+                if len(load) > 8:
+                    offset_8.append(load[8])
+                if len(load) > 16:
+                    offset_16.append(load[16])
 
-  for pkt in packets:
-    if pkt.haslayer(ICMP):
-      icmp_layer = pkt[ICMP]
-      # RAW payload check
-      if pkt.haslayer(Raw):
-        raw_data = pkt[Raw].load
+    candidates = {
+        "Packet Length (Data Size)": lengths,
+        "IP Identification Field": ip_ids,
+        "Payload Data (Offset 8)": offset_8,
+        "Payload Data (Offset 16)": offset_16
+    }
 
-        # ICMP Request (Type 8)
-        if icmp_layer.type == 8:
-          all_payloads_req.append(raw_data)
-          if len(raw_data) > 0:
-            single_bytes_req.append(raw_data[-1:])  # Last byte
+    flag_regex = re.compile(rb"bcsctf\{[^}]+\}", re.IGNORECASE)
+    found = False
 
-        # ICMP Reply (Type 0)
-        elif icmp_layer.type == 0:
-          all_payloads_rep.append(raw_data)
-          if len(raw_data) > 0:
-            single_bytes_rep.append(raw_data[-1:])  # Last byte
+    for method_name, data in candidates.items():
+        match = flag_regex.search(data)
+        if match:
+            print("\n" + "★" * 50)
+            print(f"[🎉] SUCCESS! Data was exfiltrated via: {method_name}")
+            print(f"[+] FLAG: {match.group(0).decode('utf-8', errors='ignore')}")
+            print("★" * 50 + "\n")
+            found = True
+            break
 
-  # Combine strategies
-  candidates = [
-      ("Full Request Payload Concatenation", b"".join(all_payloads_req)),
-      ("Full Reply Payload Concatenation", b"".join(all_payloads_rep)),
-      ("Last Byte of Requests", b"".join(single_bytes_req)),
-      ("Last Byte of Replies", b"".join(single_bytes_rep)),
-  ]
+    if not found:
+        print("\n[-] Exact flag structure not found. Printing printable strings from all methods:")
+        for method_name, data in candidates.items():
+            printable = "".join(chr(b) for b in data if 32 <= b <= 126)
+            if len(printable) > 10:
+                print(f"\n--- From {method_name} ---")
+                print(printable[:150])
 
-  # Flag Pattern Search
-  flag_pattern = re.compile(rb"bcsctf\{[^}]+\}", re.IGNORECASE)
-
-  found = False
-  for desc, data_bytes in candidates:
-    match = flag_pattern.search(data_bytes)
-    if match:
-      print("\n" + "★" * 50)
-      print(f"[🎉] SUCCESS! Found Flag via: {desc}")
-      print(f"[+] FLAG: {match.group(0).decode('utf-8', errors='ignore')}")
-      print("★" * 50 + "\n")
-      found = True
-      break
-
-  if not found:
-    print(
-        "\n[-] Exact flag string (bcsctf{...}) not found with standard"
-        " methods."
-    )
-    print("[*] Printing printable character sequences extracted from ICMP:")
-    text = "".join(
-        [
-            chr(b)
-            for b in b"".join(single_bytes_req)
-            if 32 <= b <= 126 or b in (10, 13)
-        ]
-    )
-    print("--- Stream Start ---")
-    print(text)
-    print("--- Stream End ---")
-
-
-extract_icmp_data()
+deep_icmp_analyze()
