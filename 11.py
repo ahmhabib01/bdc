@@ -1,7 +1,7 @@
 from PIL import Image
 import re
 
-def solve_contact_sheet(img_path="contact_sheet.jpg"):
+def solve_contact_sheet(img_path="contact_sheet.png"):
     print(f"[*] Analyzing {img_path}...")
     try:
         img = Image.open(img_path)
