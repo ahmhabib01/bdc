@@ -10,7 +10,6 @@ def solve_final_clean():
     print("[-] capture.pcap file not found!")
     return
 
-  # Filter Echo Requests starting with magic bytes 'de ad'
   reqs = [
       p
       for p in pkts
@@ -23,21 +22,16 @@ def solve_final_clean():
   for p in reqs:
     load = bytes(p[ICMP].payload)
     if len(load) >= 8:
-      # Chunk Index (bytes 4-5) & Data Length (byte 6)
       chunk_idx = int.from_bytes(load[4:6], "little")
       data_len = load[6]
-
-      # Slice ONLY the valid payload, stripping trailing ICMP garbage padding
       valid_bytes = load[8 : 8 + data_len]
       extracted_chunks.append((chunk_idx, valid_bytes))
 
-  # Sort chunks in exact order
   extracted_chunks.sort(key=lambda x: x[0])
   clean_data = b"".join(chunk for idx, chunk in extracted_chunks)
 
   print(f"[+] Clean payload assembled without padding: {len(clean_data)} bytes\n")
 
-  # 1. Plaintext Check
   flag_match = re.search(rb"bcsctf\{[^}]+\}", clean_data, re.IGNORECASE)
   if flag_match:
     print("★" * 55)
@@ -46,7 +40,6 @@ def solve_final_clean():
     print("★" * 55 + "\n")
     return
 
-  # 2. XOR Check
   for key in range(256):
     xored = bytes([b ^ key for b in clean_data])
     flag_match = re.search(rb"bcsctf\{[^}]+\}", xored, re.IGNORECASE)
