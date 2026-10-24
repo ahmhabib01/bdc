@@ -1,6 +1,7 @@
 import re
 from scapy.all import rdpcap, ICMP
 
+
 def ctf_killer(pcap_path="capture.pcap"):
     print("[*] Running Advanced CTF Payload Reassembler...")
     try:
@@ -9,10 +10,8 @@ def ctf_killer(pcap_path="capture.pcap"):
         print("[-] 'capture.pcap' file not found. Ensure the name is correct.")
         return
 
-    # শুধুমাত্র Echo Requests নিচ্ছি
     reqs = [p for p in packets if p.haslayer(ICMP) and p[ICMP].type == 8]
-    
-    # [!] CRITICAL FIX: 'de ad' এর পর থাকা কাস্টম Sequence Number অনুযায়ী প্যাকেটগুলো সাজানো
+
     try:
         reqs.sort(key=lambda x: int.from_bytes(bytes(x[ICMP].payload)[2:4], 'little'))
     except Exception:
@@ -21,7 +20,6 @@ def ctf_killer(pcap_path="capture.pcap"):
     payloads = [bytes(p[ICMP].payload) for p in reqs]
     flag_regex = re.compile(rb'bcsctf\{[^}]+\}', re.IGNORECASE)
 
-    # পরিচিত ফাইলের ম্যাজিক সিগনেচার (যাতে সরাসরি আনজিপ/ওপেন করা যায়)
     magics = {
         b'\x50\x4b\x03\x04': 'zip',
         b'\x89\x50\x4e\x47': 'png',
@@ -32,17 +30,15 @@ def ctf_killer(pcap_path="capture.pcap"):
     }
 
     found = False
-    
-    # হেডার ২ থেকে ২০ বাইট পর্যন্ত হতে পারে, সব সম্ভাবনা চেক করা হচ্ছে
+
     for skip in range(2, 22, 2):
         data = bytearray()
         for pl in payloads:
             if len(pl) > skip:
                 data.extend(pl[skip:])
-                
+
         if not data: continue
-        
-        # ১. প্লেইন টেক্সট ফ্ল্যাগ চেক
+
         match = flag_regex.search(data)
         if match:
             print(f"\n" + "★" * 50)
@@ -51,8 +47,7 @@ def ctf_killer(pcap_path="capture.pcap"):
             print("★" * 50 + "\n")
             found = True
             break
-            
-        # ২. XOR এনক্রিপশন ব্রুট-ফোর্স (যদি অ্যাটাকার ফাইল এনক্রিপ্ট করে থাকে)
+
         for key in range(256):
             xored = bytearray([b ^ key for b in data])
             match = flag_regex.search(xored)
@@ -64,8 +59,7 @@ def ctf_killer(pcap_path="capture.pcap"):
                 found = True
                 break
         if found: break
-                
-        # ৩. হিডেন ফাইল রিকভারি (ZIP, PNG ইত্যাদি)
+
         for magic, ext in magics.items():
             if data.startswith(magic):
                 print(f"\n[+] SUCCESS! Identified a hidden .{ext} file! (Header Size: {skip} bytes)")
@@ -88,5 +82,6 @@ def ctf_killer(pcap_path="capture.pcap"):
             with open(f"raw_dump_{skip}.bin", "wb") as f:
                 f.write(b''.join([pl[skip:] for pl in payloads if len(pl) > skip]))
         print("[*] Use 'binwalk -e raw_dump_*.bin' to check the saved files.")
+
 
 ctf_killer()
